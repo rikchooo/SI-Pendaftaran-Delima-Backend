@@ -1,0 +1,754 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import PrivateHeader from "@/components/PrivateHeader";
+import { HiUsers, HiClock, HiCheckCircle, HiXCircle, HiSearch, HiPrinter, HiChevronDown, HiTrendingUp, HiExclamation, HiEye, HiCheck, HiX, HiSave } from "react-icons/hi";
+
+const REGISTRATION_SCHEDULE_KEY = "registration_schedule";
+
+const DEFAULT_REGISTRATION_SCHEDULE = {
+  wave1: "1 Jan - 31 Mar 2026",
+  wave2: "1 Apr - 30 Jun 2026",
+  wave3: "1 Jul - 30 Sep 2026",
+};
+
+export default function AdminDashboard() {
+  // State untuk user, data santri, loading, error, search term, status filter, pagination, dropdown, update status
+  const [user, setUser] = useState(null);
+  const [santri, setSantri] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [registrationSchedule, setRegistrationSchedule] = useState(DEFAULT_REGISTRATION_SCHEDULE);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [updateError, setUpdateError] = useState(null);
+  const dropdownRef = useRef(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Fungsi untuk memeriksa session dan mengambil data santri
+    const fetchData = async () => {
+      try {
+      let parsed;
+        try {
+          const session = localStorage.getItem("private_session");
+          if (!session) {
+            router.replace("/PrivateWeb/login");
+            return;
+          }
+
+          parsed = JSON.parse(session);
+          if (parsed.role !== "admin") {
+            router.replace("/PrivateWeb/login");
+            return;
+          }
+        } catch (parseErr) {
+          router.replace("/PrivateWeb/login");
+          return;
+        }
+
+        setUser(parsed);
+
+        console.log('Fetching from API...');
+        
+        // Health check sebelum fetch data utama
+        try {
+          const healthCheck = await fetch("http://localhost:5002/api/health", {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (!healthCheck.ok) {
+            throw new Error('Backend server is not responding properly');
+          }
+          console.log('Backend health check: OK');
+        } catch (healthErr) {
+          console.error('Backend health check failed:', healthErr);
+          throw new Error('Server backend tidak dapat dihubungi. Pastikan server backend sedang berjalan.');
+        }
+
+        // Fetch data santri
+        const response = await fetch("http://localhost:5002/api/pendaftaran/santri", {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        console.log('Response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API Error:', response.status, errorText);
+          throw new Error('Failed to fetch data: ' + response.status);
+        }
+
+        // Coba parsing response JSON
+        const result = await response.json();
+        console.log('API Response:', result);
+        
+        // Pastikan result.data adalah array
+        const registrations = result.data || [];
+        console.log('Registrations:', registrations);
+
+        // Mapping data santri untuk keperluan tampilan
+        const mappedSantri = registrations.map((item) => ({ 
+          id: item.id_pendaftaran, 
+          name: item.nama_lengkap,
+          email: item.email,
+          phone: item.telp_ayah || '-',
+          school: item.pendidikan_terakhir || '-',
+          parentName: item.nama_ayah || item.nama_ibu || '-',
+          status: item.status,
+          date: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '-',
+          createdAt: item.created_at ? new Date(item.created_at) : new Date(),
+          address: item.alamat_santri || '-',
+        }));
+
+        mappedSantri.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+        setSantri(mappedSantri);
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        console.error('Error message:', err.message);
+        
+        let errorMessage = err.message;
+        if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+          errorMessage = 'Server backend tidak dapat dihubungi. Pastikan server backend sedang berjalan pada port 5000.';
+        } else if (err.message.includes('NetworkError') || err.message.includes('network request failed')) {
+          errorMessage = 'Terjadi kesalahan jaringan. Periksa koneksi Anda.';
+        }
+        
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [router]);
+
+  useEffect(() => {
+    // Fungsi untuk menutup dropdown saat klik di luar
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsStatusDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    const savedSchedule = localStorage.getItem(REGISTRATION_SCHEDULE_KEY);
+    if (!savedSchedule) return;
+
+    try {
+      setRegistrationSchedule({
+        ...DEFAULT_REGISTRATION_SCHEDULE,
+        ...JSON.parse(savedSchedule),
+      });
+    } catch (error) {
+      console.error("Gagal membaca jadwal pendaftaran:", error);
+    }
+  }, []);
+
+  const handleScheduleChange = (field, value) => {
+    setRegistrationSchedule((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSaveSchedule = () => {
+    localStorage.setItem(REGISTRATION_SCHEDULE_KEY, JSON.stringify(registrationSchedule));
+    window.dispatchEvent(new Event("storage"));
+    setIsScheduleModalOpen(false);
+    alert("✅ Tanggal pendaftaran berhasil diperbarui");
+  };
+
+  // Daftar role untuk dropdown
+  const updateStatus = async (id, newStatus) => {
+    setUpdatingId(id);
+    setUpdateError(null);
+    
+// Validasi status baru
+    try {
+      const response = await fetch(`http://localhost:5002/api/pendaftaran/santri/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: newStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Gagal memperbarui status');
+      }
+
+      // Coba parsing response JSON
+      const result = await response.json();
+      
+      setSantri(prevSantri => 
+        prevSantri.map(s => 
+          s.id === id ? { ...s, status: newStatus } : s
+        )
+      );
+
+      // Tampilkan alert sukses
+      const statusText = newStatus === 'accepted' ? 'Diterima' : 'Ditolak';
+      alert(`✅ Status berhasil diubah menjadi ${statusText}`);
+      
+      if (statusFilter !== 'all' && statusFilter !== newStatus) {
+        setStatusFilter('all');
+      }
+    } catch (err) {
+      console.error('Error updating status:', err);
+      setUpdateError(err.message || 'Terjadi kesalahan saat memperbarui status');
+      alert(`❌ Gagal memperbarui status: ${err.message || 'Silakan coba lagi'}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // Daftar role untuk dropdown
+  const handleStatusChange = (id, newStatus) => {
+    const statusText = newStatus === 'accepted' ? 'DITERIMA' : 'DITOLAK';
+    const confirmation = confirm(`Apakah Anda yakin ingin mengubah status pendaftaran ini menjadi ${statusText}?\n\nTindakan ini tidak dapat dibatalkan.`);
+    
+    if (confirmation) {
+      updateStatus(id, newStatus);
+    }
+  };
+
+  // Daftar role untuk dropdown
+  const handleViewDetail = (id) => {
+    router.push(`/PrivateWeb/admin/santri/${id}`);
+  };
+
+  // Fungsi untuk menangani retry saat terjadi error
+  const handleRetry = () => {
+    setLoading(true);
+    setError(null);
+    window.location.reload();
+  };
+
+  // Filter dan cari data santri berdasarkan search term dan status filter
+  const filteredSantri = santri.filter((item) => {
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.phone.includes(searchTerm);
+
+    const matchesStatus =
+      statusFilter === "all" || item.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // Page item logic
+  const itemsPerPage = 5;
+  const totalPages = Math.ceil(filteredSantri.length / itemsPerPage);
+  const paginatedSantri = filteredSantri.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  // Statistik 
+  const totalSantri = santri.length;
+  const pendingSantri = santri.filter((s) => s.status === "pending").length;
+  const acceptedSantri = santri.filter(
+    (s) => s.status === "accepted",
+  ).length;
+  const rejectedSantri = santri.filter(
+    (s) => s.status === "rejected",
+  ).length;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <PrivateHeader />
+
+      {loading ? (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Memuat data...</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="text-red-500 mb-2">
+              <HiExclamation className="w-12 h-12 mx-auto" />
+            </div>
+            <p className="text-red-600 font-medium">Terjadi kesalahan</p>
+            <p className="text-gray-500 text-sm mt-1">{error}</p>
+            <button
+              onClick={handleRetry}
+              className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      ) : (
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <section aria-labelledby="stats-heading" className="mb-8">
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500 hover:shadow-lg transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-600 text-sm font-medium">
+                    Total Pendaftaran
+                  </p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">
+                    {totalSantri}
+                  </p>
+                  <p className="text-sm text-green-600 mt-1 flex items-center">
+                    <HiTrendingUp className="w-4 h-4 mr-1" />
+                    {((pendingSantri / totalSantri) * 100).toFixed(1)}% menunggu
+                  </p>
+                </div>
+                <div className="bg-blue-100 p-3 rounded-full">
+                  <HiUsers className="w-8 h-8 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-yellow-500 hover:shadow-lg transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-600 text-sm font-medium">
+                    Menunggu Verifikasi
+                  </p>
+                  <p className="text-3xl font-bold text-yellow-600 mt-2">
+                    {pendingSantri}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Perlu tindakan segera
+                  </p>
+                </div>
+                <div className="bg-yellow-100 p-3 rounded-full">
+                  <HiClock className="w-8 h-8 text-yellow-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-500 hover:shadow-lg transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-600 text-sm font-medium">Diterima</p>
+                  <p className="text-3xl font-bold text-green-600 mt-2">
+                    {acceptedSantri}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Siap daftar ulang
+                  </p>
+                </div>
+                <div className="bg-green-100 p-3 rounded-full">
+                  <HiCheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-500 hover:shadow-lg transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-600 text-sm font-medium">Ditolak</p>
+                  <p className="text-3xl font-bold text-red-600 mt-2">
+                    {rejectedSantri}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">Perlu konfirmasi</p>
+                </div>
+                <div className="bg-red-100 p-3 rounded-full">
+                  <HiXCircle className="w-8 h-8 text-red-600" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <section aria-labelledby="table-heading" className="mb-8">
+          <div className="bg-white rounded-xl shadow-md overflow-hidden">
+            {/* Header Section */}
+            <div className="px-4 sm:px-6 py-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+                <h2
+                  id="table-heading"
+                  className="text-lg font-semibold text-gray-900 flex-shrink-0"
+                >
+                  Daftar Calon Santri
+                </h2>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:flex-initial min-w-[180px]">
+                    <HiSearch className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari nama atau no HP..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-3 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-xs sm:text-sm"
+                    />
+                  </div>
+
+                  <div
+                    className="relative w-full sm:w-auto min-w-[160px]"
+                    ref={dropdownRef}
+                  >
+                    <button
+                      onClick={() =>
+                        setIsStatusDropdownOpen(!isStatusDropdownOpen)
+                      }
+                      className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 border border-gray-300 rounded-lg bg-white flex items-center justify-between hover:border-green-400 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all text-xs sm:text-sm min-h-[34px] sm:min-h-[42px]"
+                    >
+                      <span className="truncate">
+                        {statusFilter === "all" && "Semua Status"}
+                        {statusFilter === "pending" && "Menunggu"}
+                        {statusFilter === "accepted" && "Diterima"}
+                        {statusFilter === "rejected" && "Ditolak"}
+                      </span>
+                      <HiChevronDown className={`w-4 h-4 ml-1 sm:ml-2 transition-transform duration-200 ${
+                          isStatusDropdownOpen ? "rotate-180" : ""
+                        }`} />
+                    </button>
+
+                    {isStatusDropdownOpen && (
+                      <div className="absolute z-20 mt-1 right-0 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[180px] py-1 max-h-60 overflow-y-auto">
+                        {[
+                          { value: "all", label: "Semua Status" },
+                          { value: "pending", label: "Menunggu Verifikasi" },
+                          { value: "accepted", label: "Diterima" },
+                          { value: "rejected", label: "Ditolak" },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => {
+                              setStatusFilter(option.value);
+                              setIsStatusDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm transition ${
+                              statusFilter === option.value
+                                ? "bg-green-50 text-green-700 font-medium"
+                                : "text-gray-700 hover:bg-gray-50"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="hidden sm:flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={() => setIsScheduleModalOpen(true)}
+                      className="flex items-center justify-center px-4 py-2 bg-white text-green-700 border border-green-300 rounded-lg hover:bg-green-50 transition-colors text-sm font-medium min-w-[120px]"
+                      title="Ubah Tanggal Pendaftaran"
+                    >
+                      Ubah Tanggal
+                    </button>
+
+                    <button
+                      onClick={() => router.push('/PrivateWeb/admin/laporan')}
+                      className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium min-w-[120px]"
+                      title="Cetak Laporan Santri Diterima"
+                    >
+                      <HiPrinter className="w-4 h-4 mr-2" />
+                      Cetak Laporan
+                    </button>
+                  </div>
+                </div>
+
+                <div className="sm:hidden mt-3 grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => setIsScheduleModalOpen(true)}
+                    className="w-full px-4 py-2.5 bg-white text-green-700 rounded-lg hover:bg-green-50 transition-colors font-medium flex items-center justify-center"
+                    title="Ubah Tanggal Pendaftaran"
+                  > 
+                    Ubah Tanggal
+                  </button>
+
+                  <button
+                    onClick={() => router.push('/PrivateWeb/admin/laporan')}
+                    className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center justify-center"
+                    title="Cetak Laporan Santri Diterima"
+                  >
+                    <HiPrinter className="w-4 h-4 mr-2" />
+                    Cetak Laporan
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+              <div className="min-w-[580px] md:min-w-full">
+                <table className="min-w-full divide-y divide-gray-200 text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap">No</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap">Nama & HP</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap hidden sm:table-cell">Email</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap hidden md:table-cell">Sekolah</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap hidden lg:table-cell">Orang Tua</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap">Status</th>
+                      <th className="px-2 py-2 sm:px-3 sm:py-2.5 text-left font-medium text-gray-600 tracking-wider whitespace-nowrap">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {paginatedSantri.map((santri, index) => (
+                      <tr key={santri.id} className="hover:bg-gray-50">
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap text-gray-800">
+                          {(currentPage - 1) * itemsPerPage + index + 1}
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5">
+                          <div className="font-medium text-gray-900 truncate max-w-[130px]">{santri.name}</div>
+                          <div className="text-gray-600 truncate max-w-[130px] mt-0.5 text-[11px]">{santri.phone}</div>
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap hidden sm:table-cell">
+                          <div className="text-gray-800 truncate max-w-[150px]">{santri.email}</div>
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap hidden md:table-cell text-gray-800">
+                          {santri.school}
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap hidden lg:table-cell text-gray-800">
+                          {santri.parentName}
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap">
+                          <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 inline-flex text-[10px] sm:text-xs font-medium rounded-full ${
+                            santri.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                            santri.status === "accepted" ? "bg-green-100 text-green-800" :
+                            "bg-red-100 text-red-800"
+                          }`}>
+                            {santri.status === "pending" ? "Menunggu" :
+                            santri.status === "accepted" ? "Diterima" : "Ditolak"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5 whitespace-nowrap">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5">
+                            {/* Tombol Lihat Detail */}
+                            <button
+                              onClick={() => handleViewDetail(santri.id)}
+                              className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+                              title="Lihat Detail"
+                            >
+                              <HiEye className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                            </button>
+
+                            {santri.status === "pending" && (
+                              <>
+                                {/* Tombol Terima - dengan loading state */}
+                                <button
+                                  onClick={() => handleStatusChange(santri.id, "accepted")}
+                                  disabled={updatingId === santri.id}
+                                  className={`p-1.5 rounded transition-colors ${
+                                    updatingId === santri.id 
+                                      ? 'bg-green-200 cursor-wait' 
+                                      : 'hover:bg-green-100'
+                                  }`}
+                                  title="Terima Pendaftaran"
+                                >
+                                  {updatingId === santri.id ? (
+                                    <div className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                                  ) : (
+                                    <HiCheck className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" />
+                                  )}
+                                </button>
+                                
+                                <button
+                                  onClick={() => handleStatusChange(santri.id, "rejected")}
+                                  disabled={updatingId === santri.id}
+                                  className={`p-1.5 rounded transition-colors ${
+                                    updatingId === santri.id 
+                                      ? 'bg-red-200 cursor-wait' 
+                                      : 'hover:bg-red-100'
+                                  }`}
+                                  title="Tolak Pendaftaran"
+                                >
+                                  {updatingId === santri.id ? (
+                                    <div className="w-5 h-5 sm:w-6 sm:h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                                  ) : (
+                                    <HiX className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" />
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Page item */}
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-gray-200">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                <div className="text-[11px] sm:text-sm text-gray-600 text-center sm:text-left">
+                  Menampilkan <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span> -{" "}
+                  <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredSantri.length)}</span> dari{" "}
+                  <span className="font-medium">{filteredSantri.length}</span>
+                </div>
+                <div className="flex flex-wrap justify-center sm:justify-start gap-1.5">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2 py-1 text-[11px] sm:text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 min-w-[65px] sm:min-w-[80px]"
+                  >
+                    <span className="hidden xs:inline">Sebelumnya</span>
+                    <span className="xs:hidden">❮</span>
+                  </button>
+                  <div className="flex flex-wrap gap-1">
+                    {[...Array(totalPages)].map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i + 1)}
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded flex items-center justify-center text-[11px] sm:text-sm font-medium ${
+                          currentPage === i + 1
+                            ? "bg-green-600 text-white"
+                            : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-200"
+                        }`}
+                      >
+                        {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-2 py-1 text-[11px] sm:text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 min-w-[65px] sm:min-w-[80px]"
+                  >
+                    <span className="hidden xs:inline">Berikutnya</span>
+                    <span className="xs:hidden">❯</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="activity-heading">
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h2
+              id="activity-heading"
+              className="text-lg font-semibold text-gray-900 mb-4"
+            >
+              Aktivitas Terbaru
+            </h2>
+            <div className="space-y-4">
+              {santri.slice(0, 5).map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-start space-x-3 border-b pb-3 last:border-0 hover:bg-gray-50 rounded-lg p-2 -mx-2 cursor-pointer transition-colors"
+                  onClick={() => handleViewDetail(item.id)}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    item.status === 'pending' ? 'bg-yellow-100' : 
+                    item.status === 'accepted' ? 'bg-green-100' : 'bg-red-100'
+                  }`}>
+                    {item.status === 'accepted' ? <HiCheckCircle className="w-5 h-5 text-green-600" /> : 
+                          item.status === 'rejected' ? <HiXCircle className="w-5 h-5 text-red-600" /> : 
+                          <HiClock className="w-5 h-5 text-yellow-600" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">
+                      {item.status === 'accepted' ? 'Pendaftaran Diterima' : 
+                      item.status === 'rejected' ? 'Pendaftaran Ditolak' : 'Pendaftaran Baru'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {item.name} mendaftar - {item.phone} santri baru
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {item.date}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+      )}
+      
+      {updateError && (
+        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg animate-slide-in">
+          <p className="font-medium">{updateError}</p>
+        </div>
+      )}
+
+      {isScheduleModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg bg-white rounded-xl shadow-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Ubah Tanggal Pendaftaran
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Tanggal ini akan tampil pada halaman awal di bagian Jadwal Pendaftaran.
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {[
+                { key: "wave1", label: "Gelombang I" },
+                { key: "wave2", label: "Gelombang II" },
+                { key: "wave3", label: "Gelombang III" },
+              ].map((item) => (
+                <div key={item.key}>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {item.label}
+                  </label>
+                  <input
+                    type="text"
+                    value={registrationSchedule[item.key]}
+                    onChange={(event) => handleScheduleChange(item.key, event.target.value)}
+                    placeholder="Contoh: 1 Jan - 31 Mar 2026"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none text-sm"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRegistrationSchedule(DEFAULT_REGISTRATION_SCHEDULE);
+                  localStorage.setItem(REGISTRATION_SCHEDULE_KEY, JSON.stringify(DEFAULT_REGISTRATION_SCHEDULE));
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsScheduleModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSchedule}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <HiSave className="w-4 h-4" />
+                Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
