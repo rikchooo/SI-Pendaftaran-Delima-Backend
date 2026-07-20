@@ -10,7 +10,7 @@ const runMigration = require('./migrations/relationship');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5002;
 
 const initializeDatabase = async () => {
   try {
@@ -50,6 +50,8 @@ const startServer = async () => {
   });
 };
 
-startServer();
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
 
 module.exports = app;
