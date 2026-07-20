@@ -22,6 +22,30 @@ const formatDate = (dateValue) => {
   return dateValue;
 };
 
+const ensureUsersTable = async (client) => {
+  const checkTable = await client.query(`
+    SELECT table_name FROM information_schema.tables 
+    WHERE table_schema = 'public' AND table_name = 'users'
+  `);
+  
+  if (checkTable.rows.length === 0) {
+    console.log('[Auth] users table not found, creating...');
+    await client.query(`
+      CREATE TABLE users (
+        id_user SERIAL PRIMARY KEY,
+        full_name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(20) DEFAULT 'user',
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('[Auth] users table created');
+  }
+};
+
 router.post('/register', async (req, res) => {
   let client;
   try {
@@ -42,6 +66,8 @@ router.post('/register', async (req, res) => {
     console.log('[Register] Attempting to connect to database...');
     client = await pool.connect();
     console.log('[Register] Database connected. Client acquired.');
+
+    await ensureUsersTable(client);
 
     console.log('[Register] Checking existing user:', email);
     const existingUser = await client.query(
@@ -99,6 +125,8 @@ router.post('/login', async (req, res) => {
     console.log('[Login] Attempting to connect to database...');
     client = await pool.connect();
     console.log('[Login] Database connected. Client acquired.');
+
+    await ensureUsersTable(client);
 
     console.log('[Login] Querying user:', email);
     const result = await client.query(
