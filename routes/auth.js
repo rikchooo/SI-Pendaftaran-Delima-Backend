@@ -39,12 +39,16 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    console.log('[Register] Attempting to connect to database...');
     client = await pool.connect();
+    console.log('[Register] Database connected. Client acquired.');
 
+    console.log('[Register] Checking existing user:', email);
     const existingUser = await client.query(
       'SELECT * FROM users WHERE email = $1',
       [email]
     );
+    console.log('[Register] Existing user check result:', existingUser.rows.length, 'rows found');
 
     if (existingUser.rows.length > 0) {
       client.release();
@@ -52,15 +56,18 @@ router.post('/register', async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    console.log('[Register] Password hashed. Inserting user...');
 
     const result = await client.query(
       'INSERT INTO users (full_name, email, password) VALUES ($1, $2, $3) RETURNING id_user, full_name, email, role, created_at',
       [full_name, email, hashedPassword]
     );
 
+    console.log('[Register] Insert result:', result.rows[0]);
     const newUser = result.rows[0];
     client.release();
 
+    console.log('[Register] User registered successfully:', newUser.email);
     res.status(201).json({
       message: 'User registered successfully',
       user: {
@@ -72,7 +79,7 @@ router.post('/register', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Register error:', error);
+    console.error('[Register] Error:', error);
     if (client) client.release();
     res.status(500).json({ error: 'Server error during registration: ' + error.message });
   }
@@ -89,12 +96,16 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    console.log('[Login] Attempting to connect to database...');
     client = await pool.connect();
+    console.log('[Login] Database connected. Client acquired.');
 
+    console.log('[Login] Querying user:', email);
     const result = await client.query(
       'SELECT * FROM users WHERE email = $1',
       [email]
     );
+    console.log('[Login] Query result:', result.rows.length, 'rows found');
 
     if (result.rows.length === 0) {
       client.release();
@@ -102,8 +113,11 @@ router.post('/login', async (req, res) => {
     }
 
     const user = result.rows[0];
+    console.log('[Login] User found:', user.email, 'role:', user.role);
 
     const passwordMatch = await bcrypt.compare(password, user.password);
+    console.log('[Login] Password match:', passwordMatch);
+
     if (!passwordMatch) {
       client.release();
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -111,6 +125,7 @@ router.post('/login', async (req, res) => {
 
     client.release();
 
+    console.log('[Login] Login successful for:', user.email);
     res.json({
       message: 'Login successful',
       user: {
@@ -121,7 +136,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('[Login] Error:', error);
     if (client) client.release();
     res.status(500).json({ error: 'Server error during login: ' + error.message });
   }

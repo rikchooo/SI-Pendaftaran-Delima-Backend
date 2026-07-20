@@ -55,6 +55,41 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    const tablesResult = await client.query(`
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      ORDER BY table_name
+    `);
+    const usersCount = await client.query('SELECT COUNT(*) FROM users');
+    const pendaftaranCount = await client.query('SELECT COUNT(*) FROM pendaftaran_santri');
+    const pembayaranCount = await client.query('SELECT COUNT(*) FROM pembayaran');
+    client.release();
+    
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      databaseUrl: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/\/\/.*@/, '//***@') : 'Not set',
+      tables: tablesResult.rows.map(r => r.table_name),
+      counts: {
+        users: parseInt(usersCount.rows[0].count),
+        pendaftaran_santri: parseInt(pendaftaranCount.rows[0].count),
+        pembayaran: parseInt(pembayaranCount.rows[0].count)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Debug DB error:', error);
+    res.status(500).json({
+      status: 'error',
+      database: 'connection failed',
+      error: error.message
+    });
+  }
+});
+
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
   res.status(err.status || 500).json({
@@ -65,30 +100,57 @@ app.use((err, req, res, next) => {
 
 const runSchema = async () => {
   const schemaPath = path.join(__dirname, 'config', 'schema.sql');
-  let schemaSql = fs.readFileSync(schemaPath, 'utf8');
-
-  schemaSql = schemaSql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*/g, '');
-
-  const statements = schemaSql
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
+  const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+  
   const client = await pool.connect();
+  
   try {
+    // Remove comments
+    let cleanSql = schemaSql.replace(/\/\*[\s\S]*?\*\//g, '');
+    cleanSql = cleanSql.replace(/--.*/g, '');
+    
+    // Split into statements and execute
+    const statements = cleanSql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    
+    console.log(`Found ${statements.length} SQL statements to execute`);
+    
     for (const statement of statements) {
       try {
         await client.query(statement);
+        console.log('Executed:', statement.substring(0, 80) + '...');
       } catch (stmtError) {
-        console.error('Failed to execute statement:', statement.substring(0, 100), stmtError.message);
+        console.error('Failed to execute statement:', statement.substring(0, 80), stmtError.message);
       }
     }
-    console.log('Schema initialized successfully');
+    
+    // Verify tables were created
+    const tablesResult = await client.query(`
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      ORDER BY table_name
+    `);
+    const tables = tablesResult.rows.map(r => r.table_name);
+    console.log('Tables in database:', tables.join(', ') || 'none');
+    
+    const requiredTables = ['users', 'pendaftaran_santri', 'pembayaran', 'nilai_ujian'];
+    const missingTables = requiredTables.filter(t => !tables.includes(t));
+    
+    if (missingTables.length > 0) {
+      console.error('WARNING: Missing tables after schema initialization:', missingTables.join(', '));
+      console.error('This may cause database operations to fail.');
+    } else {
+      console.log('All required tables exist.');
+    }
+    
+    console.log('Schema initialization completed');
   } catch (error) {
     console.error('Schema initialization failed:', error);
     throw error;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 };
 
