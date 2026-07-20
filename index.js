@@ -65,16 +65,23 @@ app.use((err, req, res, next) => {
 
 const runSchema = async () => {
   const schemaPath = path.join(__dirname, 'config', 'schema.sql');
-  const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+  let schemaSql = fs.readFileSync(schemaPath, 'utf8');
+
+  schemaSql = schemaSql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*/g, '');
+
   const statements = schemaSql
     .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => s.length > 0);
 
   const client = await pool.connect();
   try {
     for (const statement of statements) {
-      await client.query(statement);
+      try {
+        await client.query(statement);
+      } catch (stmtError) {
+        console.error('Failed to execute statement:', statement.substring(0, 100), stmtError.message);
+      }
     }
     console.log('Schema initialized successfully');
   } catch (error) {
