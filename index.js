@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 const pool = require('./config/database');
 const authRoutes = require('./routes/auth');
 const privateAuthRoutes = require('./routes/privateAuth');
@@ -61,8 +63,31 @@ app.use((err, req, res, next) => {
   });
 });
 
+const runSchema = async () => {
+  const schemaPath = path.join(__dirname, 'config', 'schema.sql');
+  const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+  const statements = schemaSql
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && !s.startsWith('--'));
+
+  const client = await pool.connect();
+  try {
+    for (const statement of statements) {
+      await client.query(statement);
+    }
+    console.log('Schema initialized successfully');
+  } catch (error) {
+    console.error('Schema initialization failed:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const initializeDatabase = async () => {
   try {
+    await runSchema();
     await runMigration();
     console.log('Database initialized successfully');
   } catch (error) {
