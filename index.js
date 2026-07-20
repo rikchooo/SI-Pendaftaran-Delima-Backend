@@ -66,15 +66,27 @@ app.use((err, req, res, next) => {
 const runSchema = async () => {
   const schemaPath = path.join(__dirname, 'config', 'schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-  const statements = schemaSql
+
+  // Remove multi-line comments (/* ... */)
+  const withoutBlockComments = schemaSql.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // Remove single-line comments (-- until end of line)
+  const withoutLineComments = withoutBlockComments.replace(/--.*$/gm, '');
+
+  const statements = withoutLineComments
     .split(';')
     .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
+    .filter(s => s.length > 0);
 
   const client = await pool.connect();
   try {
     for (const statement of statements) {
-      await client.query(statement);
+      try {
+        await client.query(statement);
+      } catch (statementError) {
+        console.error('Failed to execute statement:', statement);
+        throw statementError;
+      }
     }
     console.log('Schema initialized successfully');
   } catch (error) {
