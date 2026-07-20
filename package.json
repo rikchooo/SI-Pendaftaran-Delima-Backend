@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
@@ -26,5 +27,26 @@
     "eslint-config-next": "16.1.6",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.1"
+=======
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend API for PSB DELIMA",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "pg": "^8.11.3"
+>>>>>>> 5214931 (Pertama Commit)
   }
 }
