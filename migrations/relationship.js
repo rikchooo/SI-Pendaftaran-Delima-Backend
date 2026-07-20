@@ -33,11 +33,37 @@ async function runMigration() {
       },
       {
         name: 'Add foreign key pembayaran to pendaftaran',
-        sql: `ALTER TABLE pembayaran ADD CONSTRAINT IF NOT EXISTS fk_pembayaran_pendaftaran FOREIGN KEY (id_pendaftaran) REFERENCES pendaftaran_santri(id_pendaftaran) ON DELETE CASCADE`
+        sql: `DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint 
+                WHERE conname = 'fk_pembayaran_pendaftaran'
+              ) THEN
+                ALTER TABLE pembayaran 
+                ADD CONSTRAINT fk_pembayaran_pendaftaran 
+                FOREIGN KEY (id_pendaftaran) 
+                REFERENCES pendaftaran_santri(id_pendaftaran)
+                ON DELETE CASCADE;
+              END IF;
+            END;
+            $$;`
       },
       {
         name: 'Add foreign key pendaftaran to users',
-        sql: `ALTER TABLE pendaftaran_santri ADD CONSTRAINT IF NOT EXISTS fk_pendaftaran_users FOREIGN KEY (user_id) REFERENCES users(id_user) ON DELETE SET NULL`
+        sql: `DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint 
+                WHERE conname = 'fk_pendaftaran_users'
+              ) THEN
+                ALTER TABLE pendaftaran_santri 
+                ADD CONSTRAINT fk_pendaftaran_users 
+                FOREIGN KEY (user_id) 
+                REFERENCES users(id_user)
+                ON DELETE SET NULL;
+              END IF;
+            END;
+            $$;`
       },
       {
         name: 'Add nilai_alquran to pendaftaran_santri',
