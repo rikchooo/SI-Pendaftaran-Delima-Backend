@@ -12,18 +12,36 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5002;
 
-const initializeDatabase = async () => {
-  try {
-    await runMigration();
-    console.log('Database initialized successfully');
-  } catch (error) {
-    console.error('Database initialization failed:', error);
-    process.exit(1);
-  }
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms`);
+  });
+  next();
+});
+
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://delimatanjungrejo.netlify.app',
+  'https://www.delimatanjungrejo.netlify.app',
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200,
 };
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/user', authRoutes);
 app.use('/api/private', privateAuthRoutes);
@@ -36,17 +54,29 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Something went wrong!',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  console.error('Global error handler:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Something went wrong!',
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
   });
 });
 
+const initializeDatabase = async () => {
+  try {
+    await runMigration();
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Database initialization failed:', error);
+    process.exit(1);
+  }
+};
+
 const startServer = async () => {
   await initializeDatabase();
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Database: ${process.env.DATABASE_URL ? 'Using DATABASE_URL' : 'Using individual DB credentials'}`);
   });
 };
 
