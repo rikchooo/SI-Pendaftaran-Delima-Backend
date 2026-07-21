@@ -26,7 +26,7 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   'http://localhost:3000',
   'https://psbdelimatanjungrejo.netlify.app/',
-  'https://www.delimatanjungrejo.netlify.app',
+  'https://www.psbdelimatanjungrejo.netlify.app',
 ];
 
 const corsOptions = {
