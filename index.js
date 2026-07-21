@@ -25,7 +25,10 @@ app.use((req, res, next) => {
 
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://psbdelimatanjungrejo.netlify.app/',
+  'http://localhost:3001',
+  'https://delimatanjungrejo.netlify.app',
+  'https://www.delimatanjungrejo.netlify.app',
+  'https://psbdelimatanjungrejo.netlify.app',
   'https://www.psbdelimatanjungrejo.netlify.app',
 ];
 
@@ -44,6 +47,45 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Root endpoint - API documentation
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'PSB DELIMA Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      debug: '/api/debug/db',
+      auth: {
+        register: 'POST /api/user/register',
+        login: 'POST /api/user/login'
+      },
+      private_auth: {
+        login: 'POST /api/private/login',
+        register: 'POST /api/private/register'
+      },
+      pendaftaran: {
+        list: 'GET /api/pendaftaran/santri',
+        get: 'GET /api/pendaftaran/santri/:id',
+        create: 'POST /api/pendaftaran/santri',
+        status: 'GET /api/pendaftaran/status/:email',
+        updateStatus: 'PATCH /api/pendaftaran/santri/:id/status'
+      },
+      pembayaran: {
+        list: 'GET /api/pembayaran',
+        get: 'GET /api/pembayaran/:id',
+        create: 'POST /api/pembayaran',
+        update: 'PUT /api/pembayaran/:id'
+      },
+      pengujian: {
+        santriList: 'GET /api/pengujian/santri',
+        inputNilai: 'POST /api/pengujian/santri/:id/nilai',
+        getNilai: 'GET /api/pengujian/santri/:id/nilai'
+      }
+    }
+  });
+});
 
 app.use('/api/user', authRoutes);
 app.use('/api/private', privateAuthRoutes);
@@ -88,6 +130,17 @@ app.get('/api/debug/db', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// 404 Handler - harus sebelum global error handler
+app.use((req, res) => {
+  console.warn(`404 - ${req.method} ${req.originalUrl}`);
+  res.status(404).json({
+    status: 'error',
+    code: 404,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+    availableEndpoints: '/api (untuk dokumentasi lengkap)'
+  });
 });
 
 app.use((err, req, res, next) => {
