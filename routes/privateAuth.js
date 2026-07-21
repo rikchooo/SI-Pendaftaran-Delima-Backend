@@ -3,6 +3,25 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 
+const SALT_ROUNDS = 10;
+
+const formatDate = (dateValue) => {
+  if (!dateValue) return null;
+  if (typeof dateValue === 'string') {
+    if (dateValue.includes('T')) {
+      return dateValue.split('T')[0];
+    }
+    return dateValue;
+  }
+  if (dateValue instanceof Date) {
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  return dateValue;
+};
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password, role } = req.body;
@@ -58,6 +77,69 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Private login error:', error);
     res.status(500).json({ error: 'Server error during login' });
+  }
+});
+
+router.post('/register', async (req, res) => {
+  let client;
+  try {
+    const { full_name, email, password, role } = req.body;
+
+    if (!full_name || !email || !password || !role) {
+      return res.status(400).json({
+        error: 'Harap isi nama lengkap, email, kata sandi, dan role terlebih dahulu.'
+      });
+    }
+
+    const validRoles = ['admin', 'penguji', 'pengasuh'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        error: 'Role tidak valid. Harus admin, penguji, atau pengasuh.'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        error: 'Kata sandi harus memiliki setidaknya 6 karakter.'
+      });
+    }
+
+    client = await pool.connect();
+
+    const existingUser = await client.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      client.release();
+      return res.status(400).json({ error: 'Pengguna dengan email ini sudah ada' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const result = await client.query(
+      'INSERT INTO users (full_name, email, password, role, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id_user, full_name, email, role, created_at',
+      [full_name, email, hashedPassword, role]
+    );
+
+    const newUser = result.rows[0];
+    client.release();
+
+    res.status(201).json({
+      message: 'Registrasi berhasil',
+      user: {
+        id: newUser.id_user,
+        full_name: newUser.full_name,
+        email: newUser.email,
+        role: newUser.role,
+        created_at: formatDate(newUser.created_at)
+      }
+    });
+  } catch (error) {
+    console.error('Private register error:', error);
+    if (client) client.release();
+    res.status(500).json({ error: 'Server error during registration: ' + error.message });
   }
 });
 
