@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { verifyToken, verifyRole } = require('../middleware/auth');
 
 const formatDate = (dateValue) => {
   if (!dateValue) return null;
@@ -18,6 +19,9 @@ const formatDate = (dateValue) => {
   }
   return dateValue;
 };
+
+router.use(verifyToken);
+router.use(verifyRole(['penguji', 'admin']));
 
 router.post('/santri/:id/nilai', async (req, res) => {
   try {
@@ -78,10 +82,7 @@ router.post('/santri/:id/nilai', async (req, res) => {
     });
   } catch (error) {
     console.error('Submit nilai error:', error);
-    res.status(500).json({
-      error: 'Server error while submitting nilai',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Server error while submitting nilai' });
   }
 });
 
@@ -141,6 +142,7 @@ router.get('/santri', async (req, res) => {
         nu.updated_at AS nilai_updated_at
         FROM pendaftaran_santri p
         LEFT JOIN nilai_ujian nu ON p.id_pendaftaran = nu.id_pendaftaran
+        WHERE p.status IN ('accepted', 'completed')
         ORDER BY p.created_at DESC`
     );
 
@@ -165,10 +167,7 @@ router.get('/santri', async (req, res) => {
     res.json({ data });
   } catch (error) {
     console.error('Get all nilai error:', error);
-    res.status(500).json({
-      error: 'Server error while fetching nilai data',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Server error while fetching nilai data' });
   }
 });
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { verifyToken, verifyRole, isStaff, STAFF_ROLES } = require('../middleware/auth');
 
 const formatDate = (dateValue) => {
   if (!dateValue) return null;
@@ -19,7 +20,7 @@ const formatDate = (dateValue) => {
   return dateValue;
 };
 
-router.post('/', async (req, res) => {
+router.post('/', verifyToken, async (req, res) => {
   try {
     const { email, buktiPembayaran } = req.body;
 
@@ -29,8 +30,12 @@ router.post('/', async (req, res) => {
       });
     }
 
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - email tidak sesuai akun login' });
+    }
+
     const pendaftaranResult = await pool.query(
-      'SELECT id_pendaftaran FROM pendaftaran_santri WHERE email = $1',
+      'SELECT id_pendaftaran FROM pendaftaran_santri WHERE LOWER(email) = LOWER($1) ORDER BY created_at DESC LIMIT 1',
       [email]
     );
 
@@ -87,18 +92,15 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Upload payment error:', error);
-    res.status(500).json({
-      error: 'Server error during payment upload',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ error: 'Server error during payment upload' });
   }
 });
 
-router.get('/', async (req, res) => {
+router.get('/', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran,
-        p.created_at,
+        p.status_pembayaran, p.nominal, p.metode_pembayaran, p.created_at,
         ps.nama_lengkap as nama_santri, ps.user_id
         FROM pembayaran p
         LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
@@ -117,33 +119,13 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query(
-      `SELECT id_pembayaran, id_pendaftaran, email, bukti_pembayaran, created_at
-        FROM pembayaran
-        WHERE id_pembayaran = $1`,
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Pembayaran tidak ditemukan' });
-    }
-
-    const data = result.rows[0];
-    res.json({ data: { ...data, created_at: formatDate(data.created_at) } });
-  } catch (error) {
-    console.error('Get payment error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.get('/pendaftaran/:idPendaftaran', async (req, res) => {
+// Specific routes BEFORE /:id
+router.get('/pendaftaran/:idPendaftaran', verifyToken, async (req, res) => {
   try {
     const { idPendaftaran } = req.params;
     const result = await pool.query(
-      `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran, p.created_at,
+      `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran, p.status_pembayaran,
+        p.nominal, p.metode_pembayaran, p.created_at,
         ps.nama_lengkap, ps.jenis_kelamin, ps.tempat_lahir, ps.tanggal_lahir,
         ps.anak_ke, ps.pendidikan_terakhir, ps.alamat_santri,
         ps.nama_ayah, ps.nama_ibu, ps.telp_ayah, ps.created_at as registration_date
@@ -158,20 +140,37 @@ router.get('/pendaftaran/:idPendaftaran', async (req, res) => {
     }
 
     const data = result.rows[0];
-    res.json({ data: { ...data, created_at: formatDate(data.created_at), tanggal_lahir: formatDate(data.tanggal_lahir), registration_date: formatDate(data.registration_date) } });
+
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(data.email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
+
+    res.json({
+      data: {
+        ...data,
+        created_at: formatDate(data.created_at),
+        tanggal_lahir: formatDate(data.tanggal_lahir),
+        registration_date: formatDate(data.registration_date)
+      }
+    });
   } catch (error) {
     console.error('Get payment by pendaftaran error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-router.get('/email/:email', async (req, res) => {
+router.get('/email/:email', verifyToken, async (req, res) => {
   try {
     const { email } = req.params;
+
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
+
     const result = await pool.query(
-      `SELECT id_pembayaran, id_pendaftaran, email, bukti_pembayaran, created_at
+      `SELECT id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at
         FROM pembayaran
-        WHERE email = $1
+        WHERE LOWER(email) = LOWER($1)
         ORDER BY created_at DESC
         LIMIT 1`,
       [email]
@@ -189,7 +188,34 @@ router.get('/email/:email', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.get('/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at
+        FROM pembayaran
+        WHERE id_pembayaran = $1`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pembayaran tidak ditemukan' });
+    }
+
+    const data = result.rows[0];
+
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(data.email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
+
+    res.json({ data: { ...data, created_at: formatDate(data.created_at) } });
+  } catch (error) {
+    console.error('Get payment error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.put('/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { status_pembayaran, nominal, metode_pembayaran } = req.body;
@@ -230,7 +256,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
 

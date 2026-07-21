@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
+const { signToken, verifyToken, verifyRole } = require('../middleware/auth');
 
 const SALT_ROUNDS = 10;
+const VALID_STAFF_ROLES = ['admin', 'penguji', 'pengasuh'];
 
 const formatDate = (dateValue) => {
   if (!dateValue) return null;
@@ -38,8 +40,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const validRoles = ['admin', 'penguji', 'pengasuh'];
-    if (!validRoles.includes(role)) {
+    if (!VALID_STAFF_ROLES.includes(role)) {
       return res.status(400).json({
         error: 'Invalid role. Must be admin, penguji, or pengasuh'
       });
@@ -51,7 +52,7 @@ router.post('/login', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found with this role' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
@@ -65,8 +66,15 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const token = signToken({
+      id: user.id_user,
+      email: user.email,
+      role: user.role,
+    });
+
     res.json({
       message: 'Login successful',
+      token,
       user: {
         id: user.id_user,
         full_name: user.full_name,
@@ -80,7 +88,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/register', async (req, res) => {
+// Hanya admin yang boleh membuat akun staff
+router.post('/register', verifyToken, verifyRole(['admin']), async (req, res) => {
   let client;
   try {
     const { full_name, email, password, role } = req.body;
@@ -91,8 +100,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    const validRoles = ['admin', 'penguji', 'pengasuh'];
-    if (!validRoles.includes(role)) {
+    if (!VALID_STAFF_ROLES.includes(role)) {
       return res.status(400).json({
         error: 'Role tidak valid. Harus admin, penguji, atau pengasuh.'
       });
@@ -107,7 +115,7 @@ router.post('/register', async (req, res) => {
     client = await pool.connect();
 
     const existingUser = await client.query(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT id_user FROM users WHERE email = $1',
       [email]
     );
 
@@ -139,7 +147,7 @@ router.post('/register', async (req, res) => {
   } catch (error) {
     console.error('Private register error:', error);
     if (client) client.release();
-    res.status(500).json({ error: 'Server error during registration: ' + error.message });
+    res.status(500).json({ error: 'Server error during registration' });
   }
 });
 

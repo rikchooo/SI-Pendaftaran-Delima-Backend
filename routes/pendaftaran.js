@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { verifyToken, verifyRole, isStaff, STAFF_ROLES } = require('../middleware/auth');
 
 const formatDate = (dateValue) => {
   if (!dateValue) return null;
@@ -19,7 +20,7 @@ const formatDate = (dateValue) => {
   return dateValue;
 };
 
-router.post('/santri', async (req, res) => {
+router.post('/santri', verifyToken, async (req, res) => {
   try {
     const {
       email,
@@ -55,11 +56,25 @@ router.post('/santri', async (req, res) => {
       });
     }
 
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - email tidak sesuai akun login' });
+    }
+
     const parsedAnakKe = anakKe ? parseInt(anakKe, 10) : null;
     const parsedUsiaAyah = usiaAyah ? parseInt(usiaAyah, 10) : null;
     const parsedUsiaIbu = usiaIbu ? parseInt(usiaIbu, 10) : null;
 
-    let userId = null;
+    const existing = await pool.query(
+      'SELECT id_pendaftaran FROM pendaftaran_santri WHERE LOWER(email) = LOWER($1) LIMIT 1',
+      [email]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({
+        error: 'Email ini sudah memiliki pendaftaran. Hubungi panitia jika perlu perubahan.'
+      });
+    }
+
+    let userId = req.user.id || null;
     try {
       const userResult = await pool.query(
         'SELECT id_user FROM users WHERE email = $1',
@@ -108,19 +123,20 @@ router.post('/santri', async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
-      error: 'Server error during registration',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Server error during registration' });
   }
 });
 
-router.get('/status/:email', async (req, res) => {
+router.get('/status/:email', verifyToken, async (req, res) => {
   try {
     const { email } = req.params;
 
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
+
     const result = await pool.query(
-      `SELECT status FROM pendaftaran_santri WHERE email = $1`,
+      `SELECT status FROM pendaftaran_santri WHERE LOWER(email) = LOWER($1) ORDER BY created_at DESC LIMIT 1`,
       [email]
     );
 
@@ -131,7 +147,7 @@ router.get('/status/:email', async (req, res) => {
     const registration = result.rows[0];
 
     const paymentResult = await pool.query(
-      `SELECT status_pembayaran FROM pembayaran WHERE email = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT status_pembayaran FROM pembayaran WHERE LOWER(email) = LOWER($1) ORDER BY created_at DESC LIMIT 1`,
       [email]
     );
 
@@ -145,14 +161,16 @@ router.get('/status/:email', async (req, res) => {
   }
 });
 
-router.get('/santri', async (req, res) => {
+router.get('/santri', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
   try {
+    const isPengasuhOnly = req.user.role === 'pengasuh';
     const result = await pool.query(
       `SELECT id_pendaftaran, email, nama_lengkap, nama_panggilan, jenis_kelamin,
         tempat_lahir, tanggal_lahir, anak_ke,
-        telp_ayah, pendidikan_terakhir, nama_ayah, nama_ibu, alamat_santri,
-        status, catatan, created_at
+        telp_ayah, telp_ibu, pendidikan_terakhir, nama_ayah, nama_ibu, alamat_santri,
+        status, status_pembayaran, catatan, created_at
         FROM pendaftaran_santri
+        ${isPengasuhOnly ? "WHERE status IN ('accepted', 'completed')" : ''}
         ORDER BY created_at DESC`
     );
 
@@ -169,7 +187,7 @@ router.get('/santri', async (req, res) => {
   }
 });
 
-router.get('/santri/:id', async (req, res) => {
+router.get('/santri/:id', verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM pendaftaran_santri WHERE id_pendaftaran = $1',
@@ -181,6 +199,10 @@ router.get('/santri/:id', async (req, res) => {
     }
 
     const data = result.rows[0];
+
+    if (!isStaff(req.user) && req.user.email?.toLowerCase() !== String(data.email).toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
 
     const formattedData = {
       ...data,
@@ -195,7 +217,7 @@ router.get('/santri/:id', async (req, res) => {
   }
 });
 
-router.patch('/santri/:id/status', async (req, res) => {
+router.patch('/santri/:id/status', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
     const { status, catatan } = req.body;
     const { id } = req.params;
@@ -227,7 +249,7 @@ router.patch('/santri/:id/status', async (req, res) => {
   }
 });
 
-router.delete('/santri/:id', async (req, res) => {
+router.delete('/santri/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -247,7 +269,7 @@ router.delete('/santri/:id', async (req, res) => {
   }
 });
 
-router.post('/santri/:id/nilai', async (req, res) => {
+router.post('/santri/:id/nilai', verifyToken, verifyRole(['penguji', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
     const { nilai_alquran, nilai_kitab, level_alquran, level_kitab, catatan } = req.body;
@@ -293,22 +315,42 @@ router.post('/santri/:id/nilai', async (req, res) => {
       [id, alquran, kitab, level_alquran || null, level_kitab || null, catatan || null]
     );
 
+    await pool.query(
+      `UPDATE pendaftaran_santri
+        SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+        WHERE id_pendaftaran = $1`,
+      [id]
+    );
+
     res.status(201).json({
       message: 'Nilai berhasil disimpan',
       data: result.rows[0]
     });
   } catch (error) {
     console.error('Submit nilai error:', error);
-    res.status(500).json({
-      error: 'Server error while submitting nilai',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Server error while submitting nilai' });
   }
 });
 
-router.get('/santri/:id/nilai', async (req, res) => {
+router.get('/santri/:id/nilai', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
+
+    const ownerCheck = await pool.query(
+      'SELECT email FROM pendaftaran_santri WHERE id_pendaftaran = $1',
+      [id]
+    );
+
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Santri not found' });
+    }
+
+    if (
+      !isStaff(req.user) &&
+      req.user.email?.toLowerCase() !== String(ownerCheck.rows[0].email).toLowerCase()
+    ) {
+      return res.status(403).json({ error: 'Forbidden - access denied' });
+    }
 
     const result = await pool.query(
       `SELECT nu.*, p.nama_lengkap, p.nama_panggilan, p.foto, p.created_at as pendaftaran_date

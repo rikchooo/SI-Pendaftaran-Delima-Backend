@@ -8,6 +8,10 @@ const privateAuthRoutes = require('./routes/privateAuth');
 const pendaftaranRoutes = require('./routes/pendaftaran');
 const pembayaranRoutes = require('./routes/pembayaran');
 const pengujianRoutes = require('./routes/pengujian');
+const adminRoutes = require('./routes/admin');
+const pengujiRoutes = require('./routes/penguji');
+const pengasuhRoutes = require('./routes/pengasuh');
+const { verifyToken, verifyRole } = require('./middleware/auth');
 const runMigration = require('./migrations/relationship');
 require('dotenv').config();
 
@@ -63,7 +67,7 @@ app.get('/', (req, res) => {
       },
       private_auth: {
         login: 'POST /api/private/login',
-        register: 'POST /api/private/register'
+        register: 'POST /api/private/register (admin only)'
       },
       pendaftaran: {
         list: 'GET /api/pendaftaran/santri',
@@ -92,12 +96,19 @@ app.use('/api/private', privateAuthRoutes);
 app.use('/api/pendaftaran', pendaftaranRoutes);
 app.use('/api/pembayaran', pembayaranRoutes);
 app.use('/api/pengujian', pengujianRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/penguji', pengujiRoutes);
+app.use('/api/pengasuh', pengasuhRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
-app.get('/api/debug/db', async (req, res) => {
+app.get('/api/debug/db', verifyToken, verifyRole(['admin']), async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
   try {
     const client = await pool.connect();
     const tablesResult = await client.query(`
@@ -109,11 +120,10 @@ app.get('/api/debug/db', async (req, res) => {
     const pendaftaranCount = await client.query('SELECT COUNT(*) FROM pendaftaran_santri');
     const pembayaranCount = await client.query('SELECT COUNT(*) FROM pembayaran');
     client.release();
-    
+
     res.json({
       status: 'ok',
       database: 'connected',
-      databaseUrl: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/\/\/.*@/, '//***@') : 'Not set',
       tables: tablesResult.rows.map(r => r.table_name),
       counts: {
         users: parseInt(usersCount.rows[0].count),
@@ -126,8 +136,7 @@ app.get('/api/debug/db', async (req, res) => {
     console.error('Debug DB error:', error);
     res.status(500).json({
       status: 'error',
-      database: 'connection failed',
-      error: error.message
+      database: 'connection failed'
     });
   }
 });
