@@ -51,11 +51,12 @@ CREATE TABLE IF NOT EXISTS pendaftaran_santri (
     berkas_foto TEXT,
     berkas_surat_sehat TEXT,
     foto TEXT,
-    status VARCHAR(20) DEFAULT 'pending',
-    status_pembayaran VARCHAR(20),
-    catatan TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+     status VARCHAR(20) DEFAULT 'pending',
+     status_pembayaran VARCHAR(20),
+     catatan TEXT,
+     tahun_pendaftaran INTEGER,
+     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create indexes for pendaftaran_santri
@@ -104,3 +105,20 @@ CREATE INDEX IF NOT EXISTS idx_nilai_pendaftaran ON nilai_ujian(id_pendaftaran);
 
 -- Add missing column for nilai status tracking on pendaftaran_santri
 -- ALTER TABLE pendaftaran_santri ADD COLUMN IF NOT EXISTS nilai_status VARCHAR(20) DEFAULT 'belum_dinilai';
+
+-- Table: settings
+CREATE TABLE IF NOT EXISTS settings (
+    id SERIAL PRIMARY KEY,
+    key VARCHAR(50) UNIQUE NOT NULL,
+    value TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
+
+-- Insert default active year if not exists
+INSERT INTO settings (key, value) VALUES ('active_year', EXTRACT(YEAR FROM CURRENT_DATE)::TEXT) ON CONFLICT (key) DO NOTHING;
+
+-- Insert default biaya for current year if not exists
+INSERT INTO settings (key, value) VALUES ('biaya_2025', '300000') ON CONFLICT (key) DO NOTHING;

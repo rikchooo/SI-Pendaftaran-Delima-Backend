@@ -24,10 +24,18 @@ router.get('/santri', async (req, res) => {
         ps.alamat_santri,
         ps.pendidikan_terakhir,
         ps.created_at,
+        ps.tahun_pendaftaran,
         pb.status_pembayaran AS pembayaran_status,
         pb.nominal,
+        pb.metode_pembayaran,
+        pb.bukti_pembayaran,
+        pb.created_at as pembayaran_created_at,
         nj.nilai_alquran,
-        nj.nilai_kitab
+        nj.nilai_kitab,
+        nj.level_alquran,
+        nj.level_kitab,
+        nj.catatan as catatan_penguji,
+        nj.created_at as nilai_created_at
       FROM pendaftaran_santri ps
       LEFT JOIN pembayaran pb ON ps.id_pendaftaran = pb.id_pendaftaran
       LEFT JOIN nilai_ujian nj ON ps.id_pendaftaran = nj.id_pendaftaran
@@ -51,7 +59,8 @@ router.get('/santri/:id', async (req, res) => {
     const { id } = req.params;
 
     const result = await pool.query(`
-      SELECT ps.*, pb.status_pembayaran, pb.nominal, nj.nilai_alquran, nj.nilai_kitab
+      SELECT ps.*, pb.status_pembayaran, pb.nominal, pb.metode_pembayaran, pb.bukti_pembayaran, pb.created_at as pembayaran_created_at,
+        nj.nilai_alquran, nj.nilai_kitab, nj.level_alquran, nj.level_kitab, nj.catatan as catatan_penguji, nj.created_at as nilai_created_at
       FROM pendaftaran_santri ps
       LEFT JOIN pembayaran pb ON ps.id_pendaftaran = pb.id_pendaftaran
       LEFT JOIN nilai_ujian nj ON ps.id_pendaftaran = nj.id_pendaftaran

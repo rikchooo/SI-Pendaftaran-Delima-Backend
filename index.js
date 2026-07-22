@@ -11,6 +11,7 @@ const pengujianRoutes = require('./routes/pengujian');
 const adminRoutes = require('./routes/admin');
 const pengujiRoutes = require('./routes/penguji');
 const pengasuhRoutes = require('./routes/pengasuh');
+const settingsRoutes = require('./routes/settings');
 const { verifyToken, verifyRole } = require('./middleware/auth');
 const runMigration = require('./migrations/relationship');
 require('dotenv').config();
@@ -99,6 +100,7 @@ app.use('/api/pengujian', pengujianRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/penguji', pengujiRoutes);
 app.use('/api/pengasuh', pengasuhRoutes);
+app.use('/api/settings', settingsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });

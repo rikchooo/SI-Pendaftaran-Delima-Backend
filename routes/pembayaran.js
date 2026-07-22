@@ -35,7 +35,7 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     const pendaftaranResult = await pool.query(
-      'SELECT id_pendaftaran FROM pendaftaran_santri WHERE LOWER(email) = LOWER($1) ORDER BY created_at DESC LIMIT 1',
+      `SELECT id_pendaftaran, tahun_pendaftaran FROM pendaftaran_santri WHERE LOWER(email) = LOWER($1) ORDER BY created_at DESC LIMIT 1`,
       [email]
     );
 
@@ -44,11 +44,33 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     const idPendaftaran = pendaftaranResult.rows[0].id_pendaftaran;
+    const tahunPendaftaran = pendaftaranResult.rows[0].tahun_pendaftaran;
 
     const existingPayment = await pool.query(
-      'SELECT id_pembayaran FROM pembayaran WHERE id_pendaftaran = $1',
+      'SELECT id_pembayaran, nominal FROM pembayaran WHERE id_pendaftaran = $1',
       [idPendaftaran]
     );
+
+    let nominal = null;
+    if (!existingPayment.rows.length || !existingPayment.rows[0].nominal) {
+      if (tahunPendaftaran) {
+        const biayaResult = await pool.query(
+          "SELECT value FROM settings WHERE key = $1",
+          [`biaya_${tahunPendaftaran}`]
+        );
+        if (biayaResult.rows.length > 0) {
+          nominal = parseInt(biayaResult.rows[0].value, 10);
+        }
+      }
+      if (!nominal) {
+        const fallbackResult = await pool.query("SELECT value FROM settings WHERE key = 'biaya_2025'");
+        if (fallbackResult.rows.length > 0) {
+          nominal = parseInt(fallbackResult.rows[0].value, 10);
+        }
+      }
+    }
+
+    const noRegistrasi = `PSB-${String(idPendaftaran).padStart(4, '0')}`;
 
     async function syncPendaftaranStatus() {
       await pool.query(
@@ -64,7 +86,7 @@ router.post('/', verifyToken, async (req, res) => {
         `UPDATE pembayaran
          SET bukti_pembayaran = $1, status_pembayaran = 'submitted', updated_at = CURRENT_TIMESTAMP
          WHERE id_pendaftaran = $2
-         RETURNING id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at`,
+         RETURNING id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, nominal, created_at`,
         [buktiPembayaran.url, idPendaftaran]
       );
 
@@ -72,23 +94,23 @@ router.post('/', verifyToken, async (req, res) => {
 
       return res.status(200).json({
         message: 'Bukti pembayaran berhasil diperbarui',
-        data: updated.rows[0]
+        data: { ...updated.rows[0], no_registrasi: noRegistrasi, tahun_pendaftaran: tahunPendaftaran }
       });
     }
 
     const result = await pool.query(
       `INSERT INTO pembayaran (
-        id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at
-      ) VALUES ($1, $2, $3, 'submitted', CURRENT_TIMESTAMP)
-      RETURNING id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at`,
-      [idPendaftaran, email, buktiPembayaran.url]
+        id_pendaftaran, email, bukti_pembayaran, status_pembayaran, nominal, created_at
+      ) VALUES ($1, $2, $3, 'submitted', COALESCE($4, 0), CURRENT_TIMESTAMP)
+      RETURNING id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, nominal, created_at`,
+      [idPendaftaran, email, buktiPembayaran.url, nominal]
     );
 
     await syncPendaftaranStatus();
 
     res.status(201).json({
       message: 'Bukti pembayaran berhasil diupload',
-      data: result.rows[0]
+      data: { ...result.rows[0], no_registrasi: noRegistrasi, tahun_pendaftaran: tahunPendaftaran }
     });
   } catch (error) {
     console.error('Upload payment error:', error);
@@ -101,7 +123,7 @@ router.get('/', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
     const result = await pool.query(
       `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran,
         p.status_pembayaran, p.nominal, p.metode_pembayaran, p.created_at,
-        ps.nama_lengkap as nama_santri, ps.user_id
+        ps.nama_lengkap as nama_santri, ps.user_id, ps.tahun_pendaftaran
         FROM pembayaran p
         LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
         ORDER BY p.created_at DESC`
@@ -109,6 +131,7 @@ router.get('/', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
 
     const formattedData = result.rows.map(row => ({
       ...row,
+      no_registrasi: `PSB-${String(row.id_pendaftaran).padStart(4, '0')}`,
       created_at: formatDate(row.created_at),
     }));
 
@@ -128,7 +151,8 @@ router.get('/pendaftaran/:idPendaftaran', verifyToken, async (req, res) => {
         p.nominal, p.metode_pembayaran, p.created_at,
         ps.nama_lengkap, ps.jenis_kelamin, ps.tempat_lahir, ps.tanggal_lahir,
         ps.anak_ke, ps.pendidikan_terakhir, ps.alamat_santri,
-        ps.nama_ayah, ps.nama_ibu, ps.telp_ayah, ps.created_at as registration_date
+        ps.nama_ayah, ps.nama_ibu, ps.telp_ayah, ps.created_at as registration_date,
+        ps.tahun_pendaftaran
         FROM pembayaran p
         LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
         WHERE p.id_pendaftaran = $1`,
@@ -145,9 +169,12 @@ router.get('/pendaftaran/:idPendaftaran', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden - access denied' });
     }
 
+    const noRegistrasi = `PSB-${String(data.id_pendaftaran).padStart(4, '0')}`;
+
     res.json({
       data: {
         ...data,
+        no_registrasi: noRegistrasi,
         created_at: formatDate(data.created_at),
         tanggal_lahir: formatDate(data.tanggal_lahir),
         registration_date: formatDate(data.registration_date)
@@ -168,10 +195,12 @@ router.get('/email/:email', verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id_pembayaran, id_pendaftaran, email, bukti_pembayaran, status_pembayaran, created_at
-        FROM pembayaran
-        WHERE LOWER(email) = LOWER($1)
-        ORDER BY created_at DESC
+      `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran, p.status_pembayaran, p.nominal, p.created_at,
+        ps.tahun_pendaftaran
+        FROM pembayaran p
+        LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
+        WHERE LOWER(p.email) = LOWER($1)
+        ORDER BY p.created_at DESC
         LIMIT 1`,
       [email]
     );
@@ -181,7 +210,8 @@ router.get('/email/:email', verifyToken, async (req, res) => {
     }
 
     const data = result.rows[0];
-    res.json({ data: { ...data, created_at: formatDate(data.created_at) } });
+    const noRegistrasi = `PSB-${String(data.id_pendaftaran).padStart(4, '0')}`;
+    res.json({ data: { ...data, no_registrasi, created_at: formatDate(data.created_at) } });
   } catch (error) {
     console.error('Get payment by email error:', error);
     res.status(500).json({ error: 'Server error' });

@@ -80,6 +80,32 @@ async function runMigration() {
       {
         name: 'Add level_kitab to pendaftaran_santri',
         sql: `ALTER TABLE pendaftaran_santri ADD COLUMN IF NOT EXISTS level_kitab VARCHAR(50)`
+      },
+      {
+        name: 'Add tahun_pendaftaran to pendaftaran_santri',
+        sql: `ALTER TABLE pendaftaran_santri ADD COLUMN IF NOT EXISTS tahun_pendaftaran INTEGER`
+      },
+      {
+        name: 'Create settings table',
+        sql: `CREATE TABLE IF NOT EXISTS settings (
+            id SERIAL PRIMARY KEY,
+            key VARCHAR(50) UNIQUE NOT NULL,
+            value TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )`
+      },
+      {
+        name: 'Create index idx_settings_key',
+        sql: `CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key)`
+      },
+      {
+        name: 'Insert default active_year setting',
+        sql: `INSERT INTO settings (key, value) VALUES ('active_year', EXTRACT(YEAR FROM CURRENT_DATE)::TEXT) ON CONFLICT (key) DO NOTHING`
+      },
+      {
+        name: 'Insert default biaya_2025 setting',
+        sql: `INSERT INTO settings (key, value) VALUES ('biaya_2025', '300000') ON CONFLICT (key) DO NOTHING`
       }
     ];
 

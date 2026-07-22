@@ -48,6 +48,7 @@ router.post('/santri', verifyToken, async (req, res) => {
       alamatIbu,
       telpIbu,
       berkas,
+      tahun_pendaftaran,
     } = req.body;
 
     if (!namaLengkap || !email || !jenisKelamin) {
@@ -87,6 +88,8 @@ router.post('/santri', verifyToken, async (req, res) => {
       console.error('Failed to query user ID for email', email, e.message);
     }
 
+    const parsedTahun = tahun_pendaftaran ? parseInt(tahun_pendaftaran, 10) : null;
+
     const result = await pool.query(
       `INSERT INTO pendaftaran_santri (
         user_id, email, nama_lengkap, nama_panggilan, jenis_kelamin, tempat_lahir, tanggal_lahir,
@@ -94,10 +97,10 @@ router.post('/santri', verifyToken, async (req, res) => {
         nama_ayah, ttl_ayah, usia_ayah, pekerjaan_ayah, penghasilan_ayah, alamat_ayah, telp_ayah,
         nama_ibu, ttl_ibu, usia_ibu, pekerjaan_ibu, penghasilan_ibu, alamat_ibu, telp_ibu,
         berkas_akta, berkas_kk, berkas_ktp_ortu, berkas_ijazah, berkas_foto, berkas_surat_sehat,
-        status
+        status, tahun_pendaftaran
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
       ) RETURNING id_pendaftaran, created_at`,
       [
         userId, email, namaLengkap, namaPanggilan, jenisKelamin, tempatLahir, tanggalLahir,
@@ -110,7 +113,8 @@ router.post('/santri', verifyToken, async (req, res) => {
         berkas?.ijazah?.url || null,
         berkas?.foto?.url || null,
         berkas?.suratSehat?.url || null,
-        'pending'
+        'pending',
+        parsedTahun
       ]
     );
 
@@ -165,15 +169,35 @@ router.get('/status/:email', verifyToken, async (req, res) => {
 
 router.get('/santri', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
   try {
+    const isAdminOnly = req.user.role === 'admin';
     const isPengasuhOnly = req.user.role === 'pengasuh';
+    
+    let activeYear = null;
+    if (isAdminOnly) {
+      const settingResult = await pool.query("SELECT value FROM settings WHERE key = 'active_year'");
+      if (settingResult.rows.length > 0) {
+        activeYear = parseInt(settingResult.rows[0].value, 10);
+      }
+    }
+
+    let whereClause = '';
+    const params = [];
+    if (isPengasuhOnly) {
+      whereClause = "WHERE status IN ('accepted', 'completed')";
+    } else if (isAdminOnly && activeYear) {
+      whereClause = 'WHERE tahun_pendaftaran = $1';
+      params.push(activeYear);
+    }
+
     const result = await pool.query(
       `SELECT id_pendaftaran, email, nama_lengkap, nama_panggilan, jenis_kelamin,
         tempat_lahir, tanggal_lahir, anak_ke,
         telp_ayah, telp_ibu, pendidikan_terakhir, nama_ayah, nama_ibu, alamat_santri,
-        status, status_pembayaran, catatan, created_at
+        status, status_pembayaran, catatan, tahun_pendaftaran, created_at
         FROM pendaftaran_santri
-        ${isPengasuhOnly ? "WHERE status IN ('accepted', 'completed')" : ''}
-        ORDER BY created_at DESC`
+        ${whereClause}
+        ORDER BY created_at DESC`,
+      params
     );
 
     const formattedData = result.rows.map(row => ({
