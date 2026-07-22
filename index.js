@@ -31,6 +31,7 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:3002',
   'https://delimatanjungrejo.netlify.app',
   'https://www.delimatanjungrejo.netlify.app',
   'https://psbdelimatanjungrejo.netlify.app',
@@ -42,7 +43,8 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.warn('[CORS] Allowing dynamic origin:', origin);
+      callback(null, true);
     }
   },
   credentials: true,
