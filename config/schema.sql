@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS pendaftaran_santri (
 CREATE INDEX IF NOT EXISTS idx_pendaftaran_email ON pendaftaran_santri(email);
 CREATE INDEX IF NOT EXISTS idx_pendaftaran_status ON pendaftaran_santri(status);
 ALTER TABLE pendaftaran_santri ADD COLUMN IF NOT EXISTS status_pembayaran VARCHAR(20);
+ALTER TABLE pendaftaran_santri ADD COLUMN IF NOT EXISTS tahun_pendaftaran INTEGER;
 CREATE INDEX IF NOT EXISTS idx_pendaftaran_status_pembayaran ON pendaftaran_santri(status_pembayaran);
 CREATE INDEX IF NOT EXISTS idx_pendaftaran_created ON pendaftaran_santri(created_at DESC);
 

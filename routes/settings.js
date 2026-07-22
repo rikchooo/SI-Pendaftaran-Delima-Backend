@@ -59,4 +59,37 @@ router.get('/biaya/:tahun', verifyToken, async (req, res) => {
   }
 });
 
+router.get('/schedule', verifyToken, async (req, res) => {
+  try {
+    const result = await pool.query("SELECT value FROM settings WHERE key = 'registration_schedule'");
+    if (result.rows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+    res.json({ success: true, data: JSON.parse(result.rows[0].value) });
+  } catch (error) {
+    console.error('[Settings] Error fetching schedule:', error);
+    res.status(500).json({ error: 'Failed to fetch schedule' });
+  }
+});
+
+router.put('/schedule', verifyToken, verifyRole(['admin']), async (req, res) => {
+  try {
+    const { wave1, wave2, wave3 } = req.body;
+    const schedule = { wave1, wave2, wave3 };
+    const value = JSON.stringify(schedule);
+
+    const result = await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('registration_schedule', $1, CURRENT_TIMESTAMP)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+       RETURNING key, value, updated_at`,
+      [value]
+    );
+
+    res.json({ success: true, data: JSON.parse(result.rows[0].value) });
+  } catch (error) {
+    console.error('[Settings] Error updating schedule:', error);
+    res.status(500).json({ error: 'Failed to update schedule' });
+  }
+});
+
 module.exports = router;
