@@ -83,7 +83,9 @@ router.post('/santri', verifyToken, async (req, res) => {
       if (userResult.rows.length > 0) {
         userId = userResult.rows[0].id_user;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to query user ID for email', email, e.message);
+    }
 
     const result = await pool.query(
       `INSERT INTO pendaftaran_santri (
