@@ -106,6 +106,15 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   let client;
+  let clientReleased = false;
+
+  const releaseClient = () => {
+    if (client && !clientReleased) {
+      clientReleased = true;
+      client.release();
+    }
+  };
+
   try {
     const { email, password } = req.body;
 
@@ -124,20 +133,17 @@ router.post('/login', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      client.release();
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
 
     if (user.is_active === false) {
-      client.release();
       return res.status(401).json({ error: 'Account is deactivated' });
     }
 
     // Login publik hanya untuk role user (bukan staff)
     if (user.role && user.role !== 'user') {
-      client.release();
       return res.status(403).json({
         error: 'Akun staff harus login melalui halaman private'
       });
@@ -146,11 +152,10 @@ router.post('/login', async (req, res) => {
     const passwordMatch = await bcrypt.compare(password, user.password);
 
     if (!passwordMatch) {
-      client.release();
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    client.release();
+    releaseClient();
 
     const token = signToken({
       id: user.id_user,
@@ -170,8 +175,9 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('[Login] Error:', error);
-    if (client) client.release();
     res.status(500).json({ error: 'Server error during login' });
+  } finally {
+    releaseClient();
   }
 });
 
