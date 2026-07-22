@@ -123,7 +123,7 @@ router.get('/', verifyToken, verifyRole(STAFF_ROLES), async (req, res) => {
     const result = await pool.query(
       `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran,
         p.status_pembayaran, p.nominal, p.metode_pembayaran, p.created_at,
-        ps.nama_lengkap as nama_santri, ps.user_id, ps.tahun_pendaftaran
+        ps.nama_lengkap as nama_santri, ps.user_id
         FROM pembayaran p
         LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
         ORDER BY p.created_at DESC`
@@ -195,10 +195,8 @@ router.get('/email/:email', verifyToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran, p.status_pembayaran, p.nominal, p.created_at,
-        ps.tahun_pendaftaran
+      `SELECT p.id_pembayaran, p.id_pendaftaran, p.email, p.bukti_pembayaran, p.status_pembayaran, p.nominal, p.created_at
         FROM pembayaran p
-        LEFT JOIN pendaftaran_santri ps ON p.id_pendaftaran = ps.id_pendaftaran
         WHERE LOWER(p.email) = LOWER($1)
         ORDER BY p.created_at DESC
         LIMIT 1`,
